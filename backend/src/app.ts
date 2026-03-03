@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { errorHandler } from './middlewares/errorHandler';
 import authRoutes from './routes/auth';
+import documentsRoutes from './routes/documents';
 
 dotenv.config();
 
@@ -17,6 +18,7 @@ app.get('/', (req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/documents', documentsRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);

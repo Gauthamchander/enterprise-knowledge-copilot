@@ -27,12 +27,21 @@ export default function Navbar() {
             <span className="text-xl font-semibold text-gray-700">Copilot</span>
           </div>
 
-          {/* Right side: user info + logout */}
+          {/* Right side: user info + documents (superadmin only) + logout */}
           <div className="flex items-center gap-4">
             {user && (
               <span className="text-sm text-gray-600 hidden sm:block">
                 {user.email}
               </span>
+            )}
+            {/* Documents button - only for superadmin */}
+            {user?.role === 'superadmin' && (
+              <button
+                onClick={() => router.push(ROUTES.DOCUMENTS)}
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                Documents
+              </button>
             )}
             <button
               onClick={handleLogout}

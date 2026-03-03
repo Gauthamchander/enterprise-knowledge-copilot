@@ -9,6 +9,7 @@ export interface LoginResponse {
     user: {
       id: string;
       email: string;
+      role: string;
       organisationId: string | null;
       departmentId: string | null;
     };
@@ -20,6 +21,7 @@ export interface LoginResponse {
 export interface User {
   id: string;
   email: string;
+  role: string;
   organisationId: string | null;
   departmentId: string | null;
 }

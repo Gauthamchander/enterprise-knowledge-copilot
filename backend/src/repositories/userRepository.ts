@@ -17,6 +17,7 @@ export class UserRepository {
   async create(data: {
     email: string;
     passwordHash: string;
+    role?: string;
     organisationId?: string;
     departmentId?: string;
   }): Promise<User> {

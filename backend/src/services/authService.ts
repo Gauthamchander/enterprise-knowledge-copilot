@@ -9,6 +9,7 @@ export interface LoginResult {
   user: {
     id: string;
     email: string;
+    role: string;
     organisationId: string | null;
     departmentId: string | null;
   };
@@ -20,6 +21,7 @@ type UserWithIds = {
   id: string;
   email: string;
   passwordHash: string;
+  role: string;
   createdAt: Date;
   organisationId: string | null;
   departmentId: string | null;
@@ -56,6 +58,7 @@ export class AuthService {
       user: {
         id: userWithIds.id,
         email: userWithIds.email,
+        role: userWithIds.role,
         organisationId: userWithIds.organisationId ?? null,
         departmentId: userWithIds.departmentId ?? null,
       },
