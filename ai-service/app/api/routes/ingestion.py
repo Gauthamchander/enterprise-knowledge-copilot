@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File
-from typing import List
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from typing import List, Optional
 import os
 import tempfile
 import logging
@@ -30,15 +30,29 @@ def get_ingestion_service() -> IngestionService:
         _ingestion_service = IngestionService(_embedding_service, _vector_store_service)
     return _ingestion_service
 
+def get_vector_store_service() -> VectorStoreService:
+    """Get or create vector store service instance"""
+    global _vector_store_service
+    if _vector_store_service is None:
+        global _embedding_service
+        if _embedding_service is None:
+            _embedding_service = EmbeddingService()
+        _vector_store_service = VectorStoreService(_embedding_service)
+    return _vector_store_service
+
 @router.post("/upload", response_model=IngestionResponse)
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(
+    file: UploadFile = File(...),
+    documentId: str = Form(...)
+):
     """
     Upload and ingest a document
     
     - **file**: The document file to upload (PDF, DOCX, etc.)
+    - **documentId**: Collection ID for all chunks (passed from backend)
     """
     try:
-        logger.info(f"Received file upload: {file.filename}")
+        logger.info(f"Received file upload: {file.filename} with documentId: {documentId}")
         
         # Determine file type from extension
         file_extension = os.path.splitext(file.filename)[1].lower()
@@ -59,16 +73,20 @@ async def upload_document(file: UploadFile = File(...)):
             temp_file_path = temp_file.name
         
         try:
-            # Ingest the document
+            # Ingest the document with documentId
             ingestion_service = get_ingestion_service()
-            result = ingestion_service.ingest_document(temp_file_path, file_type)
+            result = ingestion_service.ingest_document(
+                temp_file_path, 
+                file_type,
+                document_id=documentId
+            )
             
             # Return response
             return IngestionResponse(
                 status="success",
                 file_path=file.filename,
                 num_chunks=result["num_chunks"],
-                document_ids=result["document_ids"],
+                document_ids=result["document_ids"],  # Keep for backward compatibility
                 message=f"Successfully ingested {result['num_chunks']} chunks from {file.filename}"
             )
         finally:
@@ -111,3 +129,25 @@ async def ingest_document(request: IngestionRequest):
     except Exception as e:
         logger.error(f"Error ingesting document: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to ingest document: {str(e)}")
+
+@router.delete("/delete-document/{document_id}")
+async def delete_document_chunks(document_id: str):
+    """
+    Delete all chunks belonging to a document
+    
+    - **document_id**: The collection ID (documentId) to delete
+    """
+    try:
+        logger.info(f"Deleting chunks for documentId: {document_id}")
+        
+        vector_store_service = get_vector_store_service()
+        deleted_count = vector_store_service.delete_by_document_id(document_id)
+        
+        return {
+            "status": "success",
+            "message": f"Deleted chunks for document {document_id}",
+            "deleted_count": deleted_count
+        }
+    except Exception as e:
+        logger.error(f"Error deleting document chunks: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete document chunks: {str(e)}")

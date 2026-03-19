@@ -41,5 +41,26 @@ model User {
   
   department   Department?  @relation(fields: [departmentId], references: [id])
   departmentId String?
+  
+  documents    Document[]
+}
+
+model Document {
+  id          String   @id @default(uuid())
+  fileName    String
+  fileSize    Int
+  fileType    String
+  filePath    String   // Path where file is stored on disk
+  uploadedAt  DateTime @default(now())
+  uploadedBy  String   // User ID who uploaded
+  
+  // AI Service data - collection ID for all chunks
+  numChunks   Int      // Number of chunks created
+  documentId  String   @unique  // Single collection ID - deleting this deletes all child chunks
+  
+  // Relations
+  user        User     @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
+  
+  @@index([uploadedBy])
 }
 

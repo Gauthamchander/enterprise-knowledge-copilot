@@ -8,6 +8,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middlewares/auth';
 import { authorize } from '../middlewares/authorize';
+import { upload } from '../middlewares/upload';
 import documentsController from '../controllers/documentsController';
 
 const router = Router();
@@ -24,7 +25,15 @@ router.post(
   '/',
   authenticate,
   authorize(['superadmin']),
+  upload.single('file'), // Handle file upload
   documentsController.createDocument.bind(documentsController)
+);
+
+router.delete(
+  '/:id',
+  authenticate,
+  authorize(['superadmin']),
+  documentsController.deleteDocument.bind(documentsController)
 );
 
 export default router;

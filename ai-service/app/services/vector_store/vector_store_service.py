@@ -1,5 +1,5 @@
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 from typing import List, Dict, Any, Optional
 import logging
 from app.config.settings import settings
@@ -174,3 +174,42 @@ class VectorStoreService:
         except Exception as e:
             logger.error(f"Error deleting document: {str(e)}")
             raise VectorStoreError(f"Failed to delete document: {str(e)}")
+    
+    def delete_by_document_id(self, document_id: str) -> int:
+        """
+        Delete all chunks belonging to a document by documentId
+        
+        Args:
+            document_id: The collection ID (documentId) to delete
+            
+        Returns:
+            Number of chunks deleted
+        """
+        try:
+            logger.info(f"Deleting all chunks for documentId: {document_id}")
+            
+            # Delete all points where documentId matches in metadata
+            result = self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=Filter(
+                    must=[
+                        FieldCondition(
+                            key="documentId",
+                            match=MatchValue(value=document_id)
+                        )
+                    ]
+                )
+            )
+            
+            # Qdrant returns operation_id, but we can't easily get the count
+            # The operation is async, so we'll return a success indicator
+            if result.status == "completed" or hasattr(result, 'operation_id'):
+                logger.info(f"Successfully deleted chunks for documentId: {document_id}")
+                return 1  # Return 1 to indicate success
+            else:
+                logger.warning(f"Qdrant delete operation status: {result.status} for documentId: {document_id}")
+                return 0
+                
+        except Exception as e:
+            logger.error(f"Error deleting chunks by documentId: {str(e)}")
+            raise VectorStoreError(f"Failed to delete chunks by documentId: {str(e)}")

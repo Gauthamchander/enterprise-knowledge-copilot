@@ -23,13 +23,31 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   
+  // Get token from localStorage if available
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  
+  // Prepare headers as Record<string, string>
+  const headers: Record<string, string> = {};
+  
+  // Copy existing headers if they're a plain object
+  if (options.headers && typeof options.headers === 'object' && !(options.headers instanceof Headers)) {
+    Object.assign(headers, options.headers);
+  }
+  
+  // Add Content-Type only if not FormData (for file uploads)
+  if (!(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
+  
+  // Add Authorization header if token exists
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
   try {
     const response = await fetch(url, {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
+      headers,
     });
 
     const data = await response.json();
@@ -62,6 +80,30 @@ export const authApi = {
     return apiRequest('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
+    });
+  },
+};
+
+export const documentsApi = {
+  getAll: async () => {
+    return apiRequest<{ status: 'success'; data: { documents: any[] } }>('/api/documents', {
+      method: 'GET',
+    });
+  },
+  
+  upload: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    return apiRequest<{ status: 'success'; data: any }>('/api/documents', {
+      method: 'POST',
+      body: formData,
+    });
+  },
+  
+  delete: async (documentId: string) => {
+    return apiRequest<{ status: 'success'; message?: string }>(`/api/documents/${documentId}`, {
+      method: 'DELETE',
     });
   },
 };

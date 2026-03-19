@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import logging
 import os
 from pathlib import Path
@@ -36,7 +36,8 @@ class IngestionService:
     def ingest_document(
         self,
         file_path: str,
-        file_type: str = "pdf"
+        file_type: str = "pdf",
+        document_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Ingest a document into the knowledge base
@@ -50,12 +51,13 @@ class IngestionService:
         Args:
             file_path: Path to the document file
             file_type: Type of file (pdf, docx, etc.)
+            document_id: Optional collection ID for all chunks
             
         Returns:
             Dictionary with ingestion results
         """
         try:
-            logger.info(f"Starting ingestion for file: {file_path}")
+            logger.info(f"Starting ingestion for file: {file_path}, document_id: {document_id}")
             
             # Step 1: Parse document and extract text
             logger.info("Step 1: Parsing document...")
@@ -78,7 +80,8 @@ class IngestionService:
                 chunks=chunks,
                 file_path=file_path,
                 file_type=file_type,
-                metadata=parsed_data.get("metadata", {})
+                metadata=parsed_data.get("metadata", {}),
+                document_id=document_id
             )
             
             # Prepare result
@@ -127,7 +130,8 @@ class IngestionService:
         chunks: List[str],
         file_path: str,
         file_type: str,
-        metadata: Dict[str, Any]
+        metadata: Dict[str, Any],
+        document_id: Optional[str] = None
     ) -> List[str]:
         """
         Store chunks in vector store with metadata
@@ -137,6 +141,7 @@ class IngestionService:
             file_path: Original file path
             file_type: Type of file
             metadata: Document metadata
+            document_id: Optional collection ID for all chunks
             
         Returns:
             List of document IDs
@@ -154,6 +159,11 @@ class IngestionService:
                 "total_chunks": len(chunks),
                 **metadata  # Include original metadata
             }
+            
+            # Add documentId to metadata if provided
+            if document_id:
+                chunk_meta["documentId"] = document_id
+            
             chunks_metadata.append(chunk_meta)
         
         # Store in vector database
