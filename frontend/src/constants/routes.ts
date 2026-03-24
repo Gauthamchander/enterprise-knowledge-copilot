@@ -8,4 +8,5 @@ export const ROUTES = {
   SIGNUP: '/signup',
   DASHBOARD: '/dashboard',
   DOCUMENTS: '/documents',
+  CHAT: '/chat',
 } as const;
