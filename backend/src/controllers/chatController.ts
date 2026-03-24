@@ -25,6 +25,9 @@ export class ChatController {
         query,
         maxResults,
         scoreThreshold,
+        userId: req.user!.id,
+        orgId: req.user?.organisationId ?? null,
+        departmentId: req.user?.departmentId ?? null,
       });
 
       logger.info(

@@ -13,6 +13,7 @@ model Organisation {
   createdAt   DateTime     @default(now())
   users       User[]
   departments Department[]
+  queryLogs   QueryLog[]
 }
 
 model Department {
@@ -27,6 +28,7 @@ model Department {
   organisationId String
   
   users         User[]
+  queryLogs     QueryLog[]
 }
 
 model User {
@@ -43,6 +45,7 @@ model User {
   departmentId String?
   
   documents    Document[]
+  queryLogs    QueryLog[]
 }
 
 model Document {
@@ -64,3 +67,23 @@ model Document {
   @@index([uploadedBy])
 }
 
+model QueryLog {
+  id        String        @id @default(uuid())
+  userId    String
+  orgId     String?
+  departmentId String?     @map("department_id")
+  question  String
+  response  String
+  responseTimeMs Int       @map("response_time_ms")
+  documentIdsUsed String[] @default([]) @map("document_ids_used")
+  createdAt DateTime      @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organisation Organisation? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([orgId])
+  @@index([departmentId])
+  @@index([createdAt])
+}

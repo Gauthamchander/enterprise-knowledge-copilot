@@ -10,6 +10,7 @@
  */
 import axios from 'axios';
 import documentRepository from '../repositories/documentRepository';
+import queryLogRepository from '../repositories/queryLogRepository';
 import { AppError } from '../middlewares/errorHandler';
 import logger from '../config/logger';
 
@@ -17,6 +18,9 @@ export interface QueryRequest {
   query: string;
   maxResults?: number;
   scoreThreshold?: number;
+  userId?: string;
+  orgId?: string | null;
+  departmentId?: string | null;
 }
 
 export interface EnhancedSource {
@@ -57,18 +61,41 @@ export class ChatService {
 
     try {
       logger.info({ query, maxResults, scoreThreshold }, 'Querying knowledge base');
+      const startTime = Date.now();
 
       // Step 1: Call AI service
       const aiResponse = await this.queryAIService(query, maxResults, scoreThreshold);
 
       // Step 2: Enhance sources with document metadata
       const enhancedSources = await this.enhanceSources(aiResponse.sources);
+      const responseTimeMs = Date.now() - startTime;
+      const documentIdsUsed = Array.from(
+        new Set(
+          enhancedSources
+            .map((source) => source.documentId)
+            .filter((id) => id && id !== 'unknown')
+        )
+      );
+
+      // Step 3: Persist question/response log for auditability
+      if (request.userId) {
+        await queryLogRepository.create({
+          userId: request.userId,
+          orgId: request.orgId ?? null,
+          departmentId: request.departmentId ?? null,
+          question: query,
+          response: aiResponse.answer,
+          responseTimeMs,
+          documentIdsUsed,
+        });
+      }
 
       logger.info(
         { 
           query, 
           answerLength: aiResponse.answer.length, 
-          sourcesCount: enhancedSources.length 
+          sourcesCount: enhancedSources.length,
+          logged: !!request.userId,
         }, 
         'Query completed successfully'
       );
