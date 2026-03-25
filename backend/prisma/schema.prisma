@@ -14,6 +14,7 @@ model Organisation {
   users       User[]
   departments Department[]
   queryLogs   QueryLog[]
+  conversations Conversation[]
 }
 
 model Department {
@@ -46,6 +47,8 @@ model User {
   
   documents    Document[]
   queryLogs    QueryLog[]
+  conversations Conversation[]
+  memories     ConversationMemory[]
 }
 
 model Document {
@@ -86,4 +89,36 @@ model QueryLog {
   @@index([orgId])
   @@index([departmentId])
   @@index([createdAt])
+}
+
+model Conversation {
+  id             String        @id @default(uuid())
+  userId         String
+  organisationId String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  memories       ConversationMemory[]
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organisation Organisation? @relation(fields: [organisationId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([organisationId])
+  @@index([createdAt])
+}
+
+model ConversationMemory {
+  id             String       @id @default(uuid())
+  conversationId String
+  userId         String
+  role           String
+  content        String
+  createdAt      DateTime     @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([userId])
+  @@map("conversation_memory")
 }

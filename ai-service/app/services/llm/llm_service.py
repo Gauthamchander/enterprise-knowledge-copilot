@@ -63,7 +63,11 @@ class LLMService:
             # Create prompt
             prompt = f"""Based on the following context from company documents, answer the question accurately and concisely.
 
-If the answer is not in the context, say "I don't have enough information to answer this question based on the available documents."
+If the answer is not in the provided context, you may still use information that is explicitly included in the question text (for example, values that are present in conversation history).
+
+If the answer is neither in the provided context nor explicitly included in the question, say "I don't have enough information to answer this question based on the available documents."
+
+If the user's question asks for the previous question (for example "What was my previous question?"), you MUST use the value of `Most recent user question:` from the question text and quote it exactly.
 
 Context:
 {context_text}
@@ -81,7 +85,8 @@ Answer:"""
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7,
-                max_tokens=500
+                # Keep generation shorter to reduce latency/timeouts.
+                max_tokens=300
             )
             
             answer = response.choices[0].message.content

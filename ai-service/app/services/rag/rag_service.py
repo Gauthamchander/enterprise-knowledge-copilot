@@ -51,12 +51,12 @@ class RAGService:
                 score_threshold=score_threshold
             )
             
+            # Even if retrieval returns nothing, we can still answer questions that
+            # are explicitly included in the query text (e.g., "What was my previous question?").
+            # So we fall through to the LLM with an empty context instead of returning early.
             if not retrieved_chunks:
-                return {
-                    "answer": "I don't have enough information to answer this question based on the available documents.",
-                    "sources": [],
-                    "query": query_text
-                }
+                logger.info("No relevant chunks found; calling LLM with empty context")
+                retrieved_chunks = []
             
             logger.info(f"Retrieved {len(retrieved_chunks)} chunks")
             

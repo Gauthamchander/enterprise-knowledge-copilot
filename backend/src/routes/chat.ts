@@ -20,6 +20,9 @@ const querySchema = Joi.object({
     'any.required': 'Query is required',
     'string.empty': 'Query cannot be empty',
   }),
+  conversationId: Joi.string().uuid().optional().messages({
+    'string.guid': 'conversationId must be a valid UUID',
+  }),
   maxResults: Joi.number().integer().min(1).max(20).optional().messages({
     'number.min': 'maxResults must be at least 1',
     'number.max': 'maxResults cannot exceed 20',
@@ -34,6 +37,13 @@ const querySchema = Joi.object({
 // Query route - requires authentication
 router.post('/query',authenticate, validate({ body: querySchema }), 
             chatController.query.bind(chatController)
+);
+
+// Conversation messages route - requires authentication
+router.get(
+  '/conversations/:id/messages',
+  authenticate,
+  chatController.getConversationMessages.bind(chatController)
 );
 
 export default router;
