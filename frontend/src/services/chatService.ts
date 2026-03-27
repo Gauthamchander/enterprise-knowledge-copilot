@@ -32,6 +32,12 @@ export interface ConversationMessage {
   createdAt: string;
 }
 
+export interface StreamCallbacks {
+  onToken: (token: string) => void;
+  onDone: (payload: ChatAnswer) => void;
+  onError: (message: string) => void;
+}
+
 export const chatService = {
   query: async (params: {
     query: string;
@@ -75,6 +81,81 @@ export const chatService = {
     }
 
     throw new Error(response.status === 'error' ? 'Failed to load messages' : 'No messages found');
+  },
+
+  streamQuery: async (
+    params: {
+      query: string;
+      conversationId?: string;
+      maxResults?: number;
+      scoreThreshold?: number;
+    },
+    callbacks: StreamCallbacks
+  ): Promise<void> => {
+    const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+    const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+    const { query, conversationId, maxResults = 5, scoreThreshold = 0.5 } = params;
+
+    const response = await fetch(`${API_BASE_URL}/api/chat/query/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        query,
+        conversationId,
+        maxResults,
+        scoreThreshold,
+      }),
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error(`Streaming request failed with status ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let currentEvent = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split('\n\n');
+      buffer = blocks.pop() || '';
+
+      for (const block of blocks) {
+        const lines = block.split('\n');
+        let dataLine = '';
+        for (const line of lines) {
+          if (line.startsWith('event:')) {
+            currentEvent = line.replace('event:', '').trim();
+          } else if (line.startsWith('data:')) {
+            dataLine += line.replace('data:', '').trim();
+          }
+        }
+
+        if (!dataLine) continue;
+
+        let parsed: any;
+        try {
+          parsed = JSON.parse(dataLine);
+        } catch {
+          continue;
+        }
+
+        if (currentEvent === 'token') {
+          callbacks.onToken(parsed.token || '');
+        } else if (currentEvent === 'done') {
+          callbacks.onDone(parsed as ChatAnswer);
+        } else if (currentEvent === 'error') {
+          callbacks.onError(parsed.message || 'Streaming failed');
+        }
+      }
+    }
   },
 };
 

@@ -39,6 +39,14 @@ router.post('/query',authenticate, validate({ body: querySchema }),
             chatController.query.bind(chatController)
 );
 
+// Streaming query route - requires authentication
+router.post(
+  '/query/stream',
+  authenticate,
+  validate({ body: querySchema }),
+  chatController.queryStream.bind(chatController)
+);
+
 // Conversation messages route - requires authentication
 router.get(
   '/conversations/:id/messages',

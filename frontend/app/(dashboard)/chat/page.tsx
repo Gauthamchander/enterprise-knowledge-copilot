@@ -118,38 +118,58 @@ export default function ChatPage() {
 
     // Optimistically render user bubble immediately
     const tempId = `user-${Date.now()}`;
+    const assistantTempId = `assistant-${Date.now()}`;
     setMessages((prev) => [
       ...prev,
       { id: tempId, role: 'user', content: trimmed },
+      { id: assistantTempId, role: 'assistant', content: '' },
     ]);
     setInput('');
     setError(null);
     setIsLoading(true);
 
     try {
-      const response = await chatService.query({
-        query: trimmed,
-        conversationId: conversationId ?? undefined,
-        maxResults: 5,
-        scoreThreshold: 0.5,
-      });
-
-      if (response.conversationId) {
-        setConversationId(response.conversationId);
-      }
-
-      setMessages((prev) => [
-        ...prev,
+      await chatService.streamQuery(
         {
-          id: `assistant-${Date.now()}`,
-          role: 'assistant',
-          content: response.answer,
-          sources: response.sources,
+          query: trimmed,
+          conversationId: conversationId ?? undefined,
+          maxResults: 5,
+          scoreThreshold: 0.5,
         },
-      ]);
+        {
+          onToken: (token) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantTempId
+                  ? { ...m, content: `${m.content}${token}` }
+                  : m
+              )
+            );
+          },
+          onDone: (payload) => {
+            if (payload.conversationId) {
+              setConversationId(payload.conversationId);
+            }
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantTempId
+                  ? {
+                      ...m,
+                      content: payload.answer || m.content,
+                      sources: payload.sources || [],
+                    }
+                  : m
+              )
+            );
+          },
+          onError: (message) => {
+            setError(message);
+          },
+        }
+      );
     } catch (err) {
-      // Remove the optimistic user bubble on failure
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      // Remove optimistic bubbles on failure
+      setMessages((prev) => prev.filter((m) => m.id !== tempId && m.id !== assistantTempId));
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {
       setIsLoading(false);

@@ -59,22 +59,7 @@ class LLMService:
             # Format context for prompt
             context_text = self._format_context(context)
             logger.info(f"Context formatted, length: {len(context_text)} characters")
-            
-            # Create prompt
-            prompt = f"""Based on the following context from company documents, answer the question accurately and concisely.
-
-If the answer is not in the provided context, you may still use information that is explicitly included in the question text (for example, values that are present in conversation history).
-
-If the answer is neither in the provided context nor explicitly included in the question, say "I don't have enough information to answer this question based on the available documents."
-
-If the user's question asks for the previous question (for example "What was my previous question?"), you MUST use the value of `Most recent user question:` from the question text and quote it exactly.
-
-Context:
-{context_text}
-
-Question: {query}
-
-Answer:"""
+            prompt = self._build_prompt(query=query, context_text=context_text)
             
             logger.info(f"Calling Groq API with model: {self.model}")
             # Generate response
@@ -100,6 +85,70 @@ Answer:"""
                 logger.warning("Falling back to first chunk due to error")
                 return context[0].get("text", "Error generating answer.")
             raise EmbeddingGenerationError(f"Failed to generate answer: {str(e)}")
+
+    def generate_answer_stream(
+        self,
+        query: str,
+        context: List[Dict[str, Any]]
+    ):
+        """
+        Stream answer tokens from query/context.
+        Yields incremental text chunks.
+        """
+        logger.info(f"generate_answer_stream called - Client exists: {self.client is not None}")
+        logger.info(f"Query: {query}")
+        logger.info(f"Context chunks: {len(context)}")
+
+        if not self.client:
+            logger.warning("LLM client not available for streaming")
+            yield "LLM not configured. Please set GROQ_API_KEY in .env file."
+            return
+
+        try:
+            context_text = self._format_context(context)
+            prompt = self._build_prompt(query=query, context_text=context_text)
+
+            stream = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that answers questions based on provided context from company documents."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=300,
+                stream=True
+            )
+
+            for chunk in stream:
+                try:
+                    delta = chunk.choices[0].delta.content
+                    if delta:
+                        yield delta
+                except Exception:
+                    continue
+        except Exception as e:
+            logger.error(f"Error streaming answer: {str(e)}", exc_info=True)
+            if context:
+                yield context[0].get("text", "Error generating answer.")
+                return
+            raise EmbeddingGenerationError(f"Failed to stream answer: {str(e)}")
+
+    def _build_prompt(self, query: str, context_text: str) -> str:
+        """Build one shared prompt used by both normal and streaming calls."""
+        return f"""Based on the following context from company documents, answer the question accurately and concisely.
+
+If the answer is not in the provided context, you may still use information that is explicitly included in the question text (for example, values that are present in conversation history).
+
+If the answer is neither in the provided context nor explicitly included in the question, say "I don't have enough information to answer this question based on the available documents."
+
+If the user's question asks for the previous question (for example "What was my previous question?"), you MUST use the value of `Most recent user question:` from the question text and quote it exactly.
+
+Context:
+{context_text}
+
+Question: {query}
+
+Answer:"""
     
     def _format_context(self, context: List[Dict[str, Any]]) -> str:
         """Format context chunks for prompt"""

@@ -53,6 +53,59 @@ export class ChatController {
   }
 
   /**
+   * POST /api/chat/query/stream
+   * Streams chat response using SSE.
+   */
+  async queryStream(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { query, maxResults, scoreThreshold, conversationId } = req.body;
+      const userId = req.user!.id;
+
+      if (!query) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'Query is required',
+        });
+      }
+
+      // SSE headers
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders?.();
+
+      logger.info({ userId, query }, 'Chat stream query received');
+
+      const result = await chatService.queryKnowledgeBaseStream(
+        {
+          query,
+          maxResults,
+          scoreThreshold,
+          conversationId,
+          userId: req.user!.id,
+          orgId: req.user?.organisationId ?? null,
+          departmentId: req.user?.departmentId ?? null,
+        },
+        {
+          onToken: (token) => {
+            res.write(`event: token\ndata: ${JSON.stringify({ token })}\n\n`);
+          },
+        }
+      );
+
+      res.write(`event: done\ndata: ${JSON.stringify(result)}\n\n`);
+      res.end();
+    } catch (error) {
+      if (res.headersSent) {
+        const message = error instanceof Error ? error.message : 'Streaming failed';
+        res.write(`event: error\ndata: ${JSON.stringify({ message })}\n\n`);
+        return res.end();
+      }
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/chat/conversations/:id/messages
    * Return conversation messages (oldest first).
    */

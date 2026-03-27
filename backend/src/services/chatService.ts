@@ -44,6 +44,10 @@ export interface QueryResponse {
   query: string;
 }
 
+export interface StreamCallbacks {
+  onToken: (token: string) => void;
+}
+
 export class ChatService {
   private aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
 
@@ -208,6 +212,96 @@ export class ChatService {
   }
 
   /**
+   * Streaming version of query flow.
+   * Emits tokens via callback and returns final assembled response.
+   */
+  async queryKnowledgeBaseStream(
+    request: QueryRequest,
+    callbacks: StreamCallbacks
+  ): Promise<QueryResponse> {
+    const { query, maxResults = 5, scoreThreshold = 0.5, conversationId } = request;
+
+    if (!query || query.trim().length === 0) {
+      throw new AppError('Query cannot be empty', 400);
+    }
+
+    const startTime = Date.now();
+    let activeConversationId = conversationId;
+
+    // Resolve conversation context
+    if (request.userId) {
+      if (activeConversationId) {
+        const existingConversation = await conversationRepository.findByIdAndUserId(
+          activeConversationId,
+          request.userId
+        );
+        if (!existingConversation) {
+          throw new AppError('Conversation not found', 404);
+        }
+      } else {
+        const newConversation = await conversationRepository.create({
+          userId: request.userId,
+          organisationId: request.orgId ?? null,
+        });
+        activeConversationId = newConversation.id;
+      }
+    }
+
+    const { contextualQuery, previousUserQuestion } = await this.buildContextualQuery(
+      activeConversationId,
+      query
+    );
+
+    // Keep deterministic short-circuit for previous-question meta query.
+    const isPreviousQuestionQuery = /previous\s+question|what\s+did\s+i\s+ask|what\s+was\s+my\s+(last|latest)\s+(question|query)/i.test(query.trim());
+    if (isPreviousQuestionQuery && previousUserQuestion) {
+      const answer = `Your previous question was: "${previousUserQuestion}"`;
+      callbacks.onToken(answer);
+
+      await this.persistConversationAndLog(
+        request,
+        activeConversationId,
+        query,
+        answer,
+        [],
+        startTime
+      );
+
+      return {
+        conversationId: activeConversationId,
+        answer,
+        sources: [],
+        query,
+      };
+    }
+
+    const streamResult = await this.queryAIServiceStream(
+      contextualQuery,
+      maxResults,
+      scoreThreshold,
+      callbacks
+    );
+
+    const enhancedSources = await this.enhanceSources(streamResult.sources);
+
+    await this.persistConversationAndLog(
+      request,
+      activeConversationId,
+      query,
+      streamResult.answer,
+      enhancedSources,
+      startTime
+    );
+
+    return {
+      conversationId: activeConversationId,
+      answer: streamResult.answer,
+      sources: enhancedSources,
+      query: streamResult.query,
+    };
+  }
+
+  /**
    * Build query text augmented with recent conversation memory.
    * Keeps memory window small to avoid overly large prompts.
    */
@@ -243,6 +337,12 @@ export class ChatService {
       })
       .join('\n');
 
+    // For direct factual/document questions, do NOT prepend history to retrieval query.
+    // Sending a huge history block to vector search reduces recall and causes false "no information" responses.
+    if (!this.shouldUseConversationHistory(currentQuery)) {
+      return { contextualQuery: currentQuery, previousUserQuestion };
+    }
+
     const contextualQuery = [
       'Use the following recent conversation history to resolve references in the current question.',
       'If the answer is present in the conversation history, you may use it.',
@@ -254,6 +354,26 @@ export class ChatService {
     ].join('\n');
 
     return { contextualQuery, previousUserQuestion };
+  }
+
+  /**
+   * Decide whether current query is a follow-up that needs conversation history.
+   * Heuristic keeps retrieval quality high for normal standalone document questions.
+   */
+  private shouldUseConversationHistory(query: string): boolean {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return false;
+
+    // Typical follow-up signals where prior turns are needed.
+    const followUpPatterns = [
+      /\b(it|this|that|they|them|these|those)\b/,
+      /\b(previous|last|earlier|above|before)\b/,
+      /\b(follow[- ]?up|same topic|same thing|continue|elaborate|clarify)\b/,
+      /\bwhat about\b/,
+      /\bcan you explain more\b/,
+    ];
+
+    return followUpPatterns.some((pattern) => pattern.test(normalized));
   }
 
   /**
@@ -297,6 +417,135 @@ export class ChatService {
         error.response?.status || 500
       );
     }
+  }
+
+  private async queryAIServiceStream(
+    query: string,
+    maxResults: number,
+    scoreThreshold: number,
+    callbacks: StreamCallbacks
+  ): Promise<{ answer: string; sources: any[]; query: string }> {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const response = await axios.post(
+          `${this.aiServiceUrl}/api/query/stream`,
+          {
+            query,
+            max_results: maxResults,
+            score_threshold: scoreThreshold,
+          },
+          {
+            timeout: 90000,
+            responseType: 'stream',
+          }
+        );
+
+        let buffer = '';
+        let currentEvent = '';
+        let answer = '';
+        let sources: any[] = [];
+        let finalQuery = query;
+
+        response.data.on('data', (chunk: Buffer | string) => {
+          buffer += chunk.toString();
+          const blocks = buffer.split('\n\n');
+          buffer = blocks.pop() || '';
+
+          for (const block of blocks) {
+            const lines = block.split('\n');
+            let dataLine = '';
+            for (const line of lines) {
+              if (line.startsWith('event:')) {
+                currentEvent = line.replace('event:', '').trim();
+              } else if (line.startsWith('data:')) {
+                dataLine += line.replace('data:', '').trim();
+              }
+            }
+
+            if (!dataLine) continue;
+
+            try {
+              const parsed = JSON.parse(dataLine);
+              if (currentEvent === 'token') {
+                const token = parsed.token || '';
+                answer += token;
+                callbacks.onToken(token);
+              } else if (currentEvent === 'sources') {
+                sources = parsed.sources || [];
+              } else if (currentEvent === 'done') {
+                finalQuery = parsed.query || finalQuery;
+                answer = parsed.answer || answer;
+              } else if (currentEvent === 'error') {
+                reject(new AppError(parsed.message || 'AI stream error', 500));
+              }
+            } catch {
+              // Ignore malformed blocks.
+            }
+          }
+        });
+
+        response.data.on('end', () => {
+          resolve({ answer, sources, query: finalQuery });
+        });
+
+        response.data.on('error', (err: Error) => {
+          reject(new AppError(`AI stream failed: ${err.message}`, 500));
+        });
+      } catch (error: any) {
+        reject(
+          new AppError(
+            `AI service stream failed: ${error?.response?.data?.detail || error.message}`,
+            error?.response?.status || 500
+          )
+        );
+      }
+    });
+  }
+
+  private async persistConversationAndLog(
+    request: QueryRequest,
+    activeConversationId: string | undefined,
+    query: string,
+    answer: string,
+    sources: EnhancedSource[],
+    startTime: number
+  ): Promise<void> {
+    if (!request.userId) return;
+
+    const responseTimeMs = Date.now() - startTime;
+    const documentIdsUsed = Array.from(
+      new Set(
+        sources
+          .map((source) => source.documentId)
+          .filter((id) => id && id !== 'unknown')
+      )
+    );
+
+    if (activeConversationId) {
+      await conversationMemoryRepository.create({
+        conversationId: activeConversationId,
+        userId: request.userId,
+        role: 'user',
+        content: query,
+      });
+
+      await conversationMemoryRepository.create({
+        conversationId: activeConversationId,
+        userId: request.userId,
+        role: 'assistant',
+        content: answer,
+      });
+    }
+
+    await queryLogRepository.create({
+      userId: request.userId,
+      orgId: request.orgId ?? null,
+      departmentId: request.departmentId ?? null,
+      question: query,
+      response: answer,
+      responseTimeMs,
+      documentIdsUsed,
+    });
   }
 
   /**
