@@ -61,6 +61,61 @@ export class DocumentRepository {
       where: { id },
     });
   }
+
+  /**
+   * Update numChunks using the documentId (collection ID)
+   */
+  async updateNumChunksByDocumentId(documentId: string, numChunks: number): Promise<Document> {
+    return prisma.document.update({
+      where: { documentId },
+      data: { numChunks },
+    });
+  }
+
+  /**
+   * Update ingestion status (and optional failure reason) using the documentId (collection ID)
+   */
+  async updateStatusByDocumentId(
+    documentId: string,
+    status: 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED',
+    failedReason?: string
+  ): Promise<Document> {
+    const data: any = {
+      status,
+      failedReason: failedReason ?? null,
+    };
+    return prisma.document.update({
+      where: { documentId },
+      data,
+    });
+  }
+
+  /**
+   * Update progress counters using the documentId (collection ID).
+   * Optionally updates totalChunks when provided. When processedChunks >= totalChunks,
+   * also keeps numChunks in sync with processedChunks.
+   */
+  async updateProgressByDocumentId(
+    documentId: string,
+    processedChunks: number,
+    totalChunks?: number
+  ): Promise<Document> {
+    const data: any = {
+      processedChunks,
+    };
+
+    if (typeof totalChunks === 'number') {
+      data.totalChunks = totalChunks;
+      if (processedChunks >= totalChunks) {
+        data.numChunks = processedChunks;
+      }
+    }
+
+    return prisma.document.update({
+      where: { documentId },
+      data,
+    });
+  }
 }
 
 export default new DocumentRepository();

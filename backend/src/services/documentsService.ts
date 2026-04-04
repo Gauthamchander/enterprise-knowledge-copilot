@@ -16,6 +16,7 @@ import { v4 as uuidv4 } from 'uuid';
 import documentRepository from '../repositories/documentRepository';
 import { AppError } from '../middlewares/errorHandler';
 import logger from '../config/logger';
+import { enqueueIngestion } from '../queues/enqueue';
 
 export interface UploadDocumentData {
   fileName: string;
@@ -59,25 +60,28 @@ export class DocumentsService {
     const filePath = path.join('uploads/documents', file.filename);
 
     try {
-      // Send to AI Service for processing
-      const aiResult = await this.sendToAIService(filePath, file.originalname, documentId);
-
-      // Save metadata to database
+      // Save metadata to database first (numChunks=0 until async processing completes)
       const document = await documentRepository.create({
         fileName: file.originalname,
         fileSize: file.size,
         fileType: file.mimetype,
         filePath: filePath,
         uploadedBy: uploadedBy,
-        numChunks: aiResult.num_chunks || 0,
+        numChunks: 0,
         documentId: documentId,
       });
 
-      logger.info({ documentId: document.id, userId: uploadedBy, fileName: file.originalname }, 'Document uploaded and processed');
+      // Enqueue async ingestion job
+      await enqueueIngestion(document.documentId, filePath, uploadedBy);
+
+      logger.info(
+        { documentId: document.id, userId: uploadedBy, fileName: file.originalname },
+        'Document uploaded; async ingestion enqueued'
+      );
 
       return document;
     } catch (error) {
-      // Clean up file on error
+      // Clean up file on error creating DB record or enqueuing
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }

@@ -6,6 +6,11 @@ export interface Document {
   fileType: string;
   uploadedAt: string;
   uploadedBy: string;
+  numChunks: number;
+  status: IngestionStatus;
+  failedReason?: string | null;
+  processedChunks: number;
+  totalChunks: number;
 }
 
 export interface DocumentsResponse {
@@ -17,10 +22,12 @@ export interface DocumentsResponse {
 }
 
 export interface UploadResponse {
-  status: 'success' | 'error';
+  status: 'success' | 'accepted' | 'error';
   data?: {
     document: Document;
     message?: string;
   };
   message?: string;
 }
+
+export type IngestionStatus = 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';

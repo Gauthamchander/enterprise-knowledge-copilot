@@ -32,7 +32,7 @@ export const documentsService = {
     try {
       const response = (await documentsApi.upload(file)) as UploadResponse;
 
-      if (response.status === 'success' && response.data?.document) {
+      if ((response.status === 'success' || response.status === 'accepted') && response.data?.document) {
         return response.data.document;
       }
 

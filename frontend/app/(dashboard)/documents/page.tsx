@@ -8,9 +8,10 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 import { documentsService } from '@/src/services/documentsService';
-import { Document } from '@/src/types/documents';
+import { Document, IngestionStatus } from '@/src/types/documents';
 import { ROUTES } from '@/src/constants/routes';
 import Button from '@/src/components/ui/Button';
+import { useDocumentsPolling } from '@/src/hooks/useDocumentsPolling';
 
 export default function DocumentsPage() {
   const { user } = useAuth();
@@ -24,6 +25,9 @@ export default function DocumentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState(false);
 
+  // Poll documents periodically to reflect async ingestion
+  const { documents: polledDocs, loading: pollingLoading, error: pollingError, anyProcessing, forceRefresh } = useDocumentsPolling(2000);
+
   // Redirect if not superadmin
   useEffect(() => {
     if (user && user.role !== 'superadmin') {
@@ -31,12 +35,14 @@ export default function DocumentsPage() {
     }
   }, [user, router]);
 
-  // Fetch documents on mount
+  // Bridge polled docs into local state (for minimal change)
   useEffect(() => {
     if (user?.role === 'superadmin') {
-      fetchDocuments();
+      setDocuments(polledDocs);
+      setIsLoading(pollingLoading);
+      if (pollingError) setError(pollingError);
     }
-  }, [user]);
+  }, [user, polledDocs, pollingLoading, pollingError]);
 
   const fetchDocuments = async () => {
     try {
@@ -63,8 +69,8 @@ export default function DocumentsPage() {
       await documentsService.uploadDocument(file);
       setUploadSuccess(true);
 
-      // Refresh documents list
-      await fetchDocuments();
+      // Restart polling so the new document appears immediately
+      forceRefresh();
 
       // Reset file input
       if (fileInputRef.current) {
@@ -119,6 +125,31 @@ export default function DocumentsPage() {
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const StatusBadge = ({ status }: { status?: IngestionStatus | null }) => {
+    const s = status ?? 'QUEUED';
+    const cls =
+      s === 'QUEUED' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
+      s === 'PROCESSING' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+      s === 'COMPLETED' ? 'bg-green-50 text-green-700 border-green-200' :
+      'bg-red-50 text-red-700 border-red-200';
+    return <span className={`px-2 py-1 text-xs rounded border ${cls}`}>{s.toLowerCase()}</span>;
+  };
+
+  const Progress = ({ processed, total }: { processed: number; total: number }) => {
+    const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+    return (
+      <div className="w-48">
+        <div className="flex justify-between text-xs mb-1">
+          <span>{processed}/{total}</span>
+          <span>{pct}%</span>
+        </div>
+        <div className="w-full bg-gray-100 h-2 rounded">
+          <div className="bg-indigo-600 h-2 rounded" style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+    );
   };
 
   // Show loading state
@@ -198,6 +229,12 @@ export default function DocumentsPage() {
           </Button>
         </div>
 
+        {anyProcessing && (
+          <div className="mb-4 p-3 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-lg">
+            Processing… The list will update automatically when ingestion completes.
+          </div>
+        )}
+
         {isLoading && documents.length > 0 ? (
           <div className="flex items-center justify-center py-8">
             <div className="animate-spin rounded-full h-6 w-6 border-2 border-indigo-600 border-t-transparent" />
@@ -225,6 +262,12 @@ export default function DocumentsPage() {
                     Uploaded At
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Progress
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
@@ -243,6 +286,21 @@ export default function DocumentsPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="text-sm text-gray-500">{formatDate(doc.uploadedAt)}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <StatusBadge status={doc.status} />
+                      {doc.status === 'FAILED' && doc.failedReason && (
+                        <div className="text-xs text-red-600 mt-1">Reason: {doc.failedReason}</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {doc.status === 'COMPLETED' ? (
+                        <div className="text-xs text-green-700">Done ({doc.numChunks} chunks)</div>
+                      ) : doc.status === 'FAILED' ? (
+                        <div className="text-xs text-red-600">Failed</div>
+                      ) : (
+                        <Progress processed={doc.processedChunks || 0} total={doc.totalChunks || 0} />
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <button

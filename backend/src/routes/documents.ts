@@ -36,4 +36,8 @@ router.delete(
   documentsController.deleteDocument.bind(documentsController)
 );
 
+router.post('/:id/reingest',authenticate, authorize(['superadmin']),
+  documentsController.reingestDocument.bind(documentsController)
+);
+
 export default router;

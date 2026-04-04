@@ -63,11 +63,24 @@ model Document {
   // AI Service data - collection ID for all chunks
   numChunks   Int      // Number of chunks created
   documentId  String   @unique  // Single collection ID - deleting this deletes all child chunks
+
+  // Ingestion progress and status (for async processing lifecycle)
+  status          IngestionStatus @default(QUEUED)
+  failedReason    String?
+  processedChunks Int             @default(0)
+  totalChunks     Int             @default(0)
   
   // Relations
   user        User     @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
   
   @@index([uploadedBy])
+}
+
+enum IngestionStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
 }
 
 model QueryLog {
